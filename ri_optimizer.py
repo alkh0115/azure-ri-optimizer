@@ -1,9 +1,10 @@
-import os
+import os 
 import subprocess
 import json
 import requests
 import pandas as pd
 from datetime import datetime
+from azure.storage.blob import BlobServiceClient
 
 TENANT_ID = os.getenv("TENANT_ID")
 CLIENT_ID = os.getenv("CLIENT_ID")
@@ -35,6 +36,14 @@ def get_savings_plans_utilization(token, sp_id):
     url = f"https://management.azure.com{sp_id}/usages?api-version=2022-10-01"
     headers = {"Authorization": f"Bearer {token}"}
     return requests.get(url, headers=headers).json()
+
+def upload_to_blob(file_path, blob_name):
+    connect_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    blob_service_client = BlobServiceClient.from_connection_string(connect_str)
+    container_client = blob_service_client.get_container_client("reports")
+    with open(file_path, "rb") as data:
+        container_client.upload_blob(name=blob_name, data=data, overwrite=True)
+    print(f"Uploaded {blob_name} to Azure Blob Storage")
 
 def generate_ri_recommendations():
     print("Running generate_ri_recommendations()")
@@ -75,7 +84,11 @@ def generate_ri_recommendations():
                     "recommendation": "Investigate workloads; consider changes"
                 })
 
-    df = pd.DataFrame(report_data)
-    filename = f"./ri_sp_report_{datetime.now().strftime('%Y%m%d')}.csv"
-    df.to_csv(filename, index=False)
-    print(f"Saved report to: {filename}")
+    if report_data:
+        df = pd.DataFrame(report_data)
+        filename = f"./ri_sp_report_{datetime.now().strftime('%Y%m%d')}.csv"
+        df.to_csv(filename, index=False)
+        print(f"Saved report to: {filename}")
+        upload_to_blob(filename, os.path.basename(filename))
+    else:
+        print("No underutilized RI or SP found — no report generated.")
